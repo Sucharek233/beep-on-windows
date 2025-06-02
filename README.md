@@ -1,7 +1,17 @@
-# pc-beeper
+# Beep on Windows!
 
+My fork is aimed to provide the same functionality as the beep command in Linux.
 
+## New Usage:
+Same as the beep command in Linux, so:
+- -f frequency to beep, default is 440Hz
+- -l beep durations, in ms, default is 100ms
+- -D wait time between new beeps, in ms
 
+## Beep samples source
+[https://github.com/ShaneMcC/beeps](https://github.com/ShaneMcC/beeps)
+
+# Original README:
 ------
 
 
@@ -65,4 +75,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
-

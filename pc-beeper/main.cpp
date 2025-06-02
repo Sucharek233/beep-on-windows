@@ -9,6 +9,9 @@
 #include <winring0.h>
 #include <getopt.h>
 
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
+
 #define BIT(nr)				(1 << (nr))
 
 #define PIT_CHNL0_PORT			(0x40)
@@ -27,68 +30,98 @@
 #define SYS_SPKR_ENABLE			BIT(0)
 #define SYS_SPKR_GATE2_ENABLE		BIT(1)
 
-#define PCLK_8284_HZ			(1193182)	// 1193180
+#define PCLK_8284_HZ			(1193182)	// 1193180 // 1193182
 
 #define BEEP_FREQ_HZ			(440)
-#define BEEP_DURATION			(1000)
+#define BEEP_DURATION			(100)
 
 static uint32_t beep_freq = BEEP_FREQ_HZ;
 static uint32_t duration_ms = BEEP_DURATION;
 
+typedef struct {
+	unsigned int freq;
+	unsigned int duration;
+	unsigned int delay;
+} BeepStep;
+
+#define MAX_STEPS 99999
+BeepStep steps[MAX_STEPS];
+int num_steps = 0;
+
+
 void print_help(void)
 {
 	fprintf_s(stdout, "Usage:\n");
-	fprintf_s(stdout, "    pc-beep.exe [-d <ms>] [-f <Hz>] [-? / -h]\n");
+	fprintf_s(stdout, "    beep.exe [-f <Hz>] [-l <ms>] [-D <ms>] [-? / -h]\n");
 	fprintf_s(stdout, "Options:\n");
-	fprintf_s(stdout, "    -d    Duration, in ms. Defualt: %d ms\n", BEEP_DURATION);
-	fprintf_s(stdout, "    -f    Beep frequency, in Hz. Default: %d Hz\n", BEEP_FREQ_HZ);
+    fprintf_s(stdout, "    -f    Beep frequency, in Hz.\n");
+	fprintf_s(stdout, "    -l    Duration, in ms.\n");
+    fprintf_s(stdout, "    -D    Wait time between new beeps, in ms\n");
 }
 
-int parse_opts(int argc, char *argv[])
+int parse_opts(int argc, char* argv[])
 {
-	int c;
+    int c;
+    opterr = 0;
 
-	opterr = 0;
+    BeepStep current = { 1000, 200, 0 }; // default values
 
-	while ((c = getopt(argc, argv, "hd:f:")) != -1) {
+    while ((c = getopt(argc, argv, "hf:l:D:n")) != -1) {
+        switch (c) {
+        case 'h':
+            return -1;
 
-		switch (c)
-		{
-			case 'h':
-				return -1;
+        case 'f':
+            if (sscanf_s(optarg, "%u", &current.freq) != 1) {
+                fprintf(stderr, "%s(): failed to parse -f\n", __func__);
+                return -1;
+            }
+            break;
 
-			case 'd':
-				if (sscanf_s(optarg, "%u", &duration_ms) != 1) {
-					printf_s("%s(): failed to parse for option -d\n", __func__);
-					return -1;
-				}
+        case 'l':
+            if (sscanf_s(optarg, "%u", &current.duration) != 1) {
+                fprintf(stderr, "%s(): failed to parse -l\n", __func__);
+                return -1;
+            }
+            break;
 
-				break;
+        case 'D':
+            if (sscanf_s(optarg, "%u", &current.delay) != 1) {
+                fprintf(stderr, "%s(): failed to parse -D\n", __func__);
+                return -1;
+            }
+            break;
 
-			case 'f':
-				if (sscanf_s(optarg, "%u", &beep_freq) != 1) {
-					printf_s("%s(): failed to parse for option -f\n", __func__);
-					return -1;
-				}
+        case 'n':
+            if (num_steps < MAX_STEPS) {
+                steps[num_steps++] = current;
+            }
+            else {
+                fprintf(stderr, "%s(): too many steps\n", __func__);
+                return -1;
+            }
 
-				break;
+            current.freq = 1000;
+            current.duration = 200;
+            current.delay = 0;
 
-			case '?':
-				if (optopt == 'd' || optopt == 'f')
-					fprintf_s(stderr, "%s(): option -d & -f needs an arguemnt\n", __func__);
-				else if (isprint(optopt))
-					fprintf_s(stderr, "%s(): unknonw option -%c\n", __func__, optopt);
-				else
-					fprintf_s(stderr, "%s(): failed to parse character: \\x%x\n", __func__, optopt);
+            break;
 
-				return -1;
+        case '?':
+            fprintf(stderr, "%s(): unknown or invalid option -%c\n", __func__, optopt);
+            return -1;
 
-			default:
-				break;
-		}
-	}
+        default:
+            break;
+        }
+    }
 
-	return 0;
+    // Add last step if `-n` wasn't the last argument
+    if (num_steps < MAX_STEPS) {
+        steps[num_steps++] = current;
+    }
+
+    return 0;
 }
 
 void beep(uint32_t freq)
@@ -129,28 +162,35 @@ void sigint_handle(int sig)
 	exit(0);
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
-	if (parse_opts(argc, argv)) {
-		print_help();
-		return 0;
-	}
+    timeBeginPeriod(1);
 
-	if (WinRing0_init()) {
-		fprintf_s(stderr, "%s(): failed to init WinRing0 driver\n", __func__);
+    if (parse_opts(argc, argv)) {
+        print_help();
+        return 0;
+    }
 
-		return -1;
-	}
+    if (WinRing0_init()) {
+        fprintf(stderr, "%s(): failed to init WinRing0 driver\n", __func__);
+        return -1;
+    }
 
-	signal(SIGINT, sigint_handle);
+    signal(SIGINT, sigint_handle);
 
-	beep(beep_freq);
-	
-	Sleep(duration_ms);
+    for (int i = 0; i < num_steps; ++i) {
+        BeepStep b = steps[i];
 
-	beep_stop();
+        beep(b.freq);
+        Sleep(b.duration);
+        beep_stop();
 
-	WinRing0_deinit();
+        if (i > 0 && b.delay > 0)
+            Sleep(b.delay);
+    }
 
-	return 0;
+    WinRing0_deinit();
+    timeEndPeriod(1);
+
+    return 0;
 }
